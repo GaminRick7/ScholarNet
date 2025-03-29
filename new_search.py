@@ -1,36 +1,33 @@
 import math
 from collections import defaultdict
+from graph import Graph, load_research_graph
 from typing import List, Dict, Tuple
-import numpy as np
 
 stop_words = {"the", "and", "of", "is", "about", "for", "paper", "study", "research", "result", "method",
               "approach", "show", "propose", "based", "analysis"}
 # excluding certain keywords from consideration in the BM25 algorithm for enhanced efficiency
 
 class BM25:
-    def __init__(self, k1=1.25, b=0.75):
+    def __init__(self, k1=1.25, b=0.75, corpus):
         self.k1 = k1  # free parameter (typically in the interval [1.2, 2]
         self.b = b  # free parameter (typically = .75)
-        self.corpus = []
+        self.corpus = corpus
         self.doc_lengths = []
         self.average_doc_length = 0  # average document length
         self.df = defaultdict(int)  # document frequency
         self.idf = {}
         self.doc_count = 0
 
-    def add_document(self, document: str):
-
-
     def calculate_idf(self):
         """Compute IDF scores for all query items"""
         for token, freq in self.df.items():
             self.idf[token] = math.log((self.doc_count - freq + 0.5) / (freq + 0.5) + 1)
 
-    def calculate_scores(self, query: str):
+    def get_scores(self, query: str) -> list[float]:
         """Calculate BM25 scores for all documents"""
         query_tokens = query.lower().split()
         self.calculate_idf()
-        scores = np.zeros(self.doc_count)
+        scores = [0.0] * self.doc_count
 
         for i, doc_tokens in enumerate(self.corpus):
             doc_length = self.doc_lengths[i]
@@ -45,6 +42,25 @@ class BM25:
 
         return scores
 
+    def get_top_n_paper_score(self, query, documents ):
+        """
+        Get top N papers with scores (maintaining your original format)
+
+        Returns:
+            List of [paper_id, title, bm25_score, citation_count]
+            citation_count initialized to 0 (to be filled later)
+        """
+        scores = self.get_scores(query)
+        results = [
+            (self.corpus[i][0],  # paper_id
+             self.corpus[i][1],  # original title
+             scores[i],  # BM25 score
+             0  # placeholder for citations
+             )
+            for i in range(len(scores))
+        ]
+
+        return sorted(results, key=lambda x: x[2], reverse=True)[:n]
 
 def get_corpus(g: Graph) -> list[tuple[str, str]]:
     graph_corpus = []
@@ -52,3 +68,134 @@ def get_corpus(g: Graph) -> list[tuple[str, str]]:
         title_words = [word.lower() for word in paper.item.title.split() if word.lower() not in stop_words]
         graph_corpus.append((paper.item.paper_id, " ".join(title_words)))
     return graph_corpus
+
+
+def get_most_cited_score(paper_scores, graph):
+    for i in range(len(paper_scores)):
+        paper_id = paper_scores[i][0]
+        num_cited_by = len(graph.vertices[paper_id].neighbours)
+        paper_scores[i][3] = num_cited_by
+
+    weight_sim = 0.7  # using a 70% weighting for BM25
+    weight_cite = 0.3  # using a 30% weighting for citations
+
+    max_sim = max(x[2] for x in paper_scores)
+    max_cite = max(x[3] for x in paper_scores) if max(x[3] for x in paper_scores) > 0 else 1
+
+    sorted_data = sorted(
+        paper_scores,
+        key=lambda x: weight_sim * (x[2] / max_sim) + weight_cite * (x[3] / max_cite),
+        reverse=True
+    )
+
+    return sorted_data[:100]
+
+
+def get_paper_by_title(graph, title):
+    return next((paper for paper in graph.vertices.values() if paper.item.title == title), None)
+
+
+def truncate_title(title, max_length=50):
+    return title if len(title) <= max_length else title[:max_length - 3] + "..."
+
+
+def set_up_corpus(g: Graph):
+    corpus = get_corpus(graph)
+    tokenized_corpus = [x[1].split(" ") for x in corpus]
+    bm25 = CustomBM25Okapi(tokenized_corpus)
+    return corpus, bm25
+
+
+def build_query_graph(mega_graph: Graph, weighted_papers: list) -> Graph:
+    query_graph = Graph()
+    pprint.pprint(weighted_papers)
+    for paper in weighted_papers:
+        query_graph.add_vertex(mega_graph.vertices[paper[0]].item)
+        query_graph.vertices[mega_graph.vertices[paper[0]].item.paper_id].level = 1
+
+    values = list(query_graph.vertices.values())
+    for paper in values:
+        p_id = paper.item.paper_id
+        for x in paper.item.references[:10]:
+            if x in mega_graph.vertices:
+                x_paper = mega_graph.vertices[x]
+                query_graph.add_vertex(x_paper.item)
+            if x in query_graph.vertices:
+                query_graph.add_edge(p_id, x)
+
+    return query_graph
+
+
+def return_query(graph: Graph, query: str, bm25, corpus: list) -> Graph:
+    result = bm25.get_top_n_paper_score(query.split(" "), corpus)
+
+    weighted_papers = get_most_cited_score(result, graph)
+
+    query_graph = build_query_graph(graph, weighted_papers)
+
+    return query_graph
+
+
+def filter_query(graph: Graph, citations: str, author: str, venue: str) -> Graph:
+    print(venue)
+    for paper in graph.vertices.values():
+        if paper.item.n_citation < int(citations):
+            paper.visible = False
+    if author != "0":
+        for paper in graph.vertices.values():
+            if author not in paper.item.authors:
+                paper.visible = False
+    if venue != "0":
+        for paper in graph.vertices.values():
+            if venue != paper.item.venue:
+                paper.visible = False
+    return graph
+
+
+def get_all_authors(graph: Graph) -> list[str]:
+    authors = []
+    for paper in graph.vertices.values():
+        for author in paper.item.authors:
+            authors.append(author)
+    return authors
+
+
+def get_all_venues(graph: Graph) -> list[str]:
+    venues = []
+    for paper in graph.vertices.values():
+        if paper.item.venue not in venues:
+            venues.append(paper.item.venue)
+    return [x for x in venues if x.strip()]
+
+
+def calculate_weight(x: int) -> int:
+    if x > 50:
+        return 16
+    elif x > 25:
+        return 13
+    elif x > 10:
+        return 10
+    elif x > 5:
+        return 7
+    elif x > 2:
+        return 5
+    else:
+        return 3
+
+
+if __name__ == "__main__":
+    graph = load_research_graph()
+    corpus = get_corpus(graph)
+
+    # Initialize with custom stop words
+    stop_words = {"the", "and", "of", "paper", "study"}
+    bm25 = BM25(corpus, stop_words=stop_words)
+
+    # Search and rank
+    results = bm25.get_top_n_paper_score("artificial intelligence")
+    final_results = get_most_cited_score(results, graph, n=20)
+
+    # Print results (same format as before)
+    for i, (pid, title, score, cites) in enumerate(final_results, 1):
+        title = truncate_title(title, 50)
+        print(f"{i:>2}.) {pid} | {title:<50} | Score: {score:.2f} | Cites: {cites}")
