@@ -20,6 +20,7 @@ class BM25:
 
     def calculate_idf(self):
         """Compute IDF scores for all query items"""
+
         for token, freq in self.df.items():
             self.idf[token] = math.log((self.doc_count - freq + 0.5) / (freq + 0.5) + 1)
 
@@ -42,7 +43,7 @@ class BM25:
 
         return scores
 
-    def get_top_n_paper_score(self, query, documents ):
+    def get_top_n_paper_score(self, query, documents):
         """
         Get top N papers with scores (maintaining your original format)
 
@@ -186,13 +187,12 @@ def calculate_weight(x: int) -> int:
 if __name__ == "__main__":
     graph = load_research_graph()
     corpus = get_corpus(graph)
+    tokenized_corpus = [x[1].split(" ") for x in corpus]
 
-    # Initialize with custom stop words
-    stop_words = {"the", "and", "of", "paper", "study"}
-    bm25 = BM25(corpus, stop_words=stop_words)
+    bm25 = BM25(tokenized_corpus)
 
     # Search and rank
-    results = bm25.get_top_n_paper_score("artificial intelligence")
+    results = bm25.get_top_n_paper_score("artificial intelligence", corpus)
     final_results = get_most_cited_score(results, graph, n=20)
 
     # Print results (same format as before)
