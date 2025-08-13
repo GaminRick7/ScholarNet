@@ -7,7 +7,7 @@ ScholarNet is a sophisticated research paper search and visualization platform t
 ## Features
 
 ### 🔍 Advanced Search Capabilities
-- **BM25 Information Retrieval**: Implements the BM25 ranking algorithm for highly relevant search results
+- **BM25 Information Retrieval**: Implements the BM25 ranking algorithm from scratch for highly relevant search results
 - **Natural Language Processing**: Tokenizes and processes search queries with stop word removal
 - **Citation-Aware Ranking**: Combines semantic similarity with citation count for optimal paper ranking
 - **Search History**: Maintains a history of recent searches for quick access
@@ -351,3 +351,4 @@ This project is part of CSC111 Winter 2025 coursework at the University of Toron
 ---
 
 *ScholarNet: Connecting researchers through intelligent paper discovery and visualization.*
+
